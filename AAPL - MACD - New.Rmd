@@ -13,6 +13,7 @@ output:
 ---
 
 ```{r setup, include=FALSE}
+# Import relevant packages for this script
 knitr::opts_chunk$set(echo = TRUE, warning = FALSE)
 library(tidyquant)
 library(ggplot2)
@@ -23,41 +24,40 @@ library(dplyr)
 library(hrbrthemes)
 ```
 
-# Download AAPL Stock Data
+# Retrieve Apple Stock Data
 
 ```{r}
+# silence warnings
 getSymbols.warning4.0=FALSE
 
+# stock data for Apple and the S&P 500
 getSymbols("AAPL", src='yahoo', )
 getSymbols("^GSPC", src='yahoo',)
 ```
 
 ```{r}
-# AAPL
+# Save apple data to a dataframe
 df <- data.frame(Date=index(AAPL),coredata(AAPL))
-# take the last 3000 observations
+# take most recent observations
 df <- tail(df, 4000)
 # reset index
 rownames(df) = NULL
 
-#SPX
+# SPX to a dataframe
 SPX <- data.frame(Date=index(GSPC),coredata(GSPC))
-
+# take most recent observations
 SPX <- tail(SPX, 4000)
 # reset index
 rownames(SPX) = NULL
 ```
 
-
 ```{r}
 # copy the data
 raw_data = df
-head(raw_data)
-summary(raw_data)
 ```
 
 ```{r}
-# rename AAPL columns to simplicity
+# rename AAPL columns for simplicity
 names(raw_data)[names(raw_data)=="AAPL.Open"] = "Open"
 names(raw_data)[names(raw_data)=="AAPL.High"] = "High"
 names(raw_data)[names(raw_data)=="AAPL.Low"] = "Low"
@@ -65,7 +65,7 @@ names(raw_data)[names(raw_data)=="AAPL.Close"] = "Close"
 names(raw_data)[names(raw_data)=="AAPL.Volume"] = "Volume"
 names(raw_data)[names(raw_data)=="AAPL.Adjusted"] = "Price"
 
-# rename SPX columns to simplicity
+# rename SPX columns for simplicity
 names(SPX)[names(SPX)=="GSPC.Open"] = "Open"
 names(SPX)[names(SPX)=="GSPC.High"] = "High"
 names(SPX)[names(SPX)=="GSPC.Low"] = "Low"
@@ -74,29 +74,33 @@ names(SPX)[names(SPX)=="GSPC.Volume"] = "Volume"
 names(SPX)[names(SPX)=="GSPC.Adjusted"] = "Price"
 ```
 
+## Sample Period
+
 ```{r}
-head(raw_data)
-head(SPX)
+# retrieve max and min dates
+date_max = max(raw_data$Date)
+date_min = min(raw_data$Date)
+
+print(paste("Our sample considers AAPL OHLC data from", date_min, "through", date_max))
 ```
 
 ## Calculate Daily Return
 
-**Calculate a simple day-to-day return, from adjusted-close to adjusted-close**
+Calculate a simple day-to-day return, from adjusted-close to adjusted-close:
 
 ```{r}
-# AAPL
+# create a blank column
 raw_data$return = NA
 raw_data$log_return = NA
 
+# loop through data and calculate daily returns
 for(t in 2:nrow(raw_data)){
   raw_data$return[t] = (raw_data$Price[t] - raw_data$Price[t-1])/ raw_data$Price[t-1]
   raw_data$log_return[t] = log(raw_data$Price[t]/raw_data$Price[t-1])
 }
 
-head(raw_data)
 
-
-# SPX
+# Do the same for SP500
 SPX$return = NA
 SPX$log_return = NA
 
@@ -105,37 +109,40 @@ for(t in 2:nrow(SPX)){
   SPX$log_return[t] = log(SPX$Price[t]/SPX$Price[t-1])
 }
 
-head(SPX)
+head(SPX, 4)
+head(raw_data,4)
 ```
 
 # Indicators and Studies
 
-## Calculate Slow and Fast Moving Averages
+## Simple Moving Averages Functions
 
-**Here we calculate a 60-day moving average (slow) as well as a 30-day moving average (fast) to use as our study**
+Create a function to calculate two simple moving averages of differing lengths for use for a trend-following trading system:
 
 ```{r}
 Two_MovAvg_function = function(variable, slow_period = 100, fast_period = 20){
+  # blank list of variables
   fast_ma = rep(NA, length(variable))
   slow_ma = rep(NA, length(variable))
   
-  # MA's
+  # loop to calculate average price for each record
   for (t in (slow_period+1):length(variable)){
     est_slow = mean(variable[(t-(slow_period+1)):(t-1)])
     est_fast = mean(variable[(t-(fast_period+1)):(t-1)])
-    
+    # update current average price
     fast_ma[t] = est_fast
     slow_ma[t] = est_slow
   }
-  
+  # create a dataframe for new vectors
   ma_data = data.frame(fast_ma = fast_ma,
                        slow_ma  = slow_ma)
   return(ma_data)
 }
 ```
 
+## Exponential Moving Averages Function
 
-## Calculate Exponential MA for MACD
+Create a function to calculate two exponential moving averages of differing lengths for use for a trend-following trading system:
 
 ```{r}
 EA_Mov_Avg = function(variable, slow_lag = 100, fast_lag = 25){
@@ -143,7 +150,7 @@ EA_Mov_Avg = function(variable, slow_lag = 100, fast_lag = 25){
   slow_ea = variable
   ema_diff = rep(NA, length(variable))
   
-  # EMAs
+  # Loop to calculate each exponential average
   for (t in 2:length(variable)){ 
       est_slow = slow_ea[t-1] + (slow_ea[t] - slow_ea[t-1]) / ((slow_lag + 1) / 2)
       est_fast = fast_ea[t-1] + (fast_ea[t] - fast_ea[t-1]) / ((fast_lag + 1) / 2)
@@ -153,7 +160,7 @@ EA_Mov_Avg = function(variable, slow_lag = 100, fast_lag = 25){
     slow_ea[t] = est_slow
     fast_ea[t] = est_fast
   }
-  
+  # dataframe for new vector
   ema_data = data.frame(fast_ema = fast_ea,
                         slow_ema = slow_ea,
                         ema_diff = ema_diff)
@@ -161,9 +168,8 @@ EA_Mov_Avg = function(variable, slow_lag = 100, fast_lag = 25){
 }
 ```
 
-
 ```{r}
-# save these as new columns back to original data 
+# add these as new vectors to original data 
 
 new_df = EA_Mov_Avg(raw_data$Close, slow_lag = 150, fast_lag = 30)
 
@@ -172,10 +178,16 @@ raw_data$fast_ma = new_df$fast_ema
 raw_data$ema_diff = new_df$ema_diff
 ```
 
+## Average True Range
 
-## Average True Range 
+-   The average true range (ATR) is a technical analysis indicator, introduced by market technician J. Welles Wilder Jr. in his book New Concepts in Technical Trading Systems, that [measures market volatility](https://www.investopedia.com/articles/trading/08/average-true-range.asp) by decomposing the entire range of an asset price for that period.
+-   The true range indicator is taken as the greatest of the following: current high less the current low; the [absolute value](https://www.investopedia.com/terms/a/absolute-value.asp) of the current high less the previous close; and the absolute value of the current low less the previous close. The ATR is then a [moving average](https://www.investopedia.com/terms/m/movingaverage.asp), generally using 14 days, of the true ranges.
+-   Here we can use this as a measure of recent volatility in order to adjust our trade entry position sizes accordingly. The idea is that we can enter with smaller position sizes during times of greater volatility and larger positions during times of less volatility in order to decrease overall risk.
 
 ### True Range
+
+First calculate the maximum of the aforementioned ranges:
+
 ```{r}
 max_range_functon = function(variable){
   max_range = rep(0, length(variable))
@@ -201,13 +213,15 @@ raw_data$max_range = max_range_df$max_range
 head(raw_data)
 ```
 
-
 ### Average True Range Function
+
+Create function that uses the true range vector to calculate a moving average of the true range with a user-specified lag period:
+
 ```{r}
 ATR_function = function(variable, lag = 15){
   atr_list = rep(NA, length(variable))
   
-  # MA's
+  # Loop to create ATR
   for (t in (lag+2):length(variable)){
     est_atr = mean(variable[(t-(lag)):t])
     
@@ -217,12 +231,14 @@ ATR_function = function(variable, lag = 15){
   atr_data = data.frame(atr = atr_list)
   return(atr_data)
 }
-
+# Add vector to our data
 atr_data = ATR_function(raw_data$max_range)
 raw_data$atr = atr_data$atr
 ```
 
 ### Risk per lot
+
+This is a multiple of the ATR for volatility-based position sizing:
 
 ```{r}
 risk_multiplier = 5
@@ -233,9 +249,8 @@ raw_data$risk_per_lot = raw_data$atr * risk_multiplier
 head(raw_data) 
 ```
 
-
 ```{r}
-# store cross over dates for charting annotations
+# save moving average cross-over dates for chart annotations
 
 h = raw_data[which((raw_data$fast_ma > raw_data$slow_ma) & (raw_data$fast_ma[-1] < raw_data$slow_ma[-1]))+1,]
 l = raw_data[which((raw_data$fast_ma < raw_data$slow_ma) & (raw_data$fast_ma[-1] > raw_data$slow_ma[-1]))+1,]
@@ -244,9 +259,8 @@ h
 l
 ```
 
-
 ```{r}
-# Create arrow annotations
+# Create arrow annotations for trade entry signal
 
 # Upper annotations
 h_a <- list(
@@ -297,13 +311,15 @@ x <- list(
 y <- list(
   title = "y Axis",
   titlefont = f)
-``` 
+```
 
 # **Candlestick Chart**
 
-## Visualizing Moving Average Crossover
+## Visualizing the Trend-following System
 
-**A candlestick chart to help visualize what our strategy attempts to do**
+-   The following candlestick chart helps us to visualize what our strategy is doing
+
+-   As the faster price smoothing crosses above the slower lag, the system will buy on that day.
 
 ```{r}
 
@@ -345,7 +361,7 @@ fig2 <- fig2 %>% plot_ly(x=~Date, y=~ema_diff, type='bar', name = "MACD",
                          color = ~MACD_direction, colors = c("red", "green"), alpha = 0.8)
 fig2 <- fig2 %>% layout(yaxis = list(title = "MACD"))
 
-
+# use subplot to add plots to the same figure
 fig = subplot(fig, fig2, heights = c(0.8,0.15), nrows = 2,
               shareX = TRUE, titleY = TRUE)
 
@@ -362,8 +378,7 @@ fig
 
 # Generate signals using MA Indicator
 
-**Now we use our indicator to generate a signal**
-
+Now we use our indicator to generate trading signals and store them in a vector:
 
 ```{r}
 raw_data$signal = NA
@@ -388,23 +403,19 @@ for(t in 100:nrow(raw_data)){
 
 ## Holding Status and Investment Return
 
-**After generating a signal, we must calculate the return from our strategy**
-
-In order to calculate switching from short to long simultaneously, we need to calculate
-two returns and combine them:
-Say we go buy -> short
-- $1+r1$ * $1+r2$ = $(1+avg(r1,r2))$
+After generating the signals, we must calculate the return from our strategy:
 
 ```{r}
-# used to calculate fill price skid
+# used to calculate fill price penalty / skid
+# we will penalize by 40% from the open - high for buy orders
+# and 40% from the open - low for sell orders
 
 buy_weight = .40
 sell_weight = -.40
 ```
 
-
 ```{r}
-# Generate a holding status column # 
+# Generate a holding status column  
 # and investment return column
 
 raw_data$holding = 0      # first record, you are not holding
@@ -440,15 +451,18 @@ for (t in 100:nrow(raw_data)){
   raw_data$Inv_return[t] = investment_return}
 ```
 
-
 ## Cumulative Return
 
+From the individual daily returns, we must create a cash and number of stocks vector to hold each days current figures:
 
 ```{r}
+# starting investment $100,000
 initial_wealth = 100000
+# create vectors to store updates
 raw_data$cash = rep(initial_wealth, length(raw_data$Close))
 raw_data$n_stock = rep(0, length(raw_data$Close))
 
+# loop through signals and simulate the trades
 for (t in 1:length(raw_data$signal)){
   
   if(t==1){prev_cash = initial_wealth; n_stock = 0
@@ -464,7 +478,7 @@ for (t in 1:length(raw_data$signal)){
   High = raw_data$High[t]
   Low = raw_data$Low[t]
   
-  #### Note: Added is.na to skip rows at the beginning of the data that do not have a signal
+# is.na to deal with rows at  beginning with no signal
   
   if(is.na(signal)==TRUE){
     prev_cash = raw_data$cash[t-1]
@@ -483,10 +497,6 @@ for (t in 1:length(raw_data$signal)){
         raw_data$n_stock[t] = stock_n
         
         } else
-          
-          #### I believe the trouble is with the follow if statement
-          ### It seems that the Buy signal works but I am having trouble implementing the sell update
-          ## Note: I changed my system so that it does not go short; it can go long only
           
           if (signal =="S"){
             sell_skid = (Open-Low) * sell_weight + Open
@@ -509,6 +519,9 @@ for (t in 1:length(raw_data$signal)){
 ```
 
 ## **Final Return**
+
+Calculate the cash plus the value of the stock on hand for the last day in the sample:
+
 ```{r}
 print(raw_data[max(index(raw_data)),])
 
@@ -518,160 +531,6 @@ print(paste("Initial Investment:", sprintf("$ %3.2f", initial_wealth)))
 print(paste("Final Return:",sprintf("$ %3.2f" , final_return)))
 
 ```
-
-
-## Max Adverse & Favorable Excursion
-
-**Let's look at the days with the largest gains and losses**
-
-```{r}
-max_daily_return = round((max(raw_data$Inv_return, na.rm = TRUE)*100),4)
-max_daily_loss =  round((min(raw_data$Inv_return, na.rm = TRUE)*100), 4)
-avg_daily_return = round((mean(raw_data$Inv_return, na.rm = TRUE)*100),4)
-
-bh_max_return = round((max(raw_data$return, na.rm = TRUE)*100),4)
-bh_max_loss =  round((min(raw_data$return, na.rm = TRUE)*100), 4)
-bh_avg_return = round((mean(raw_data$return, na.rm = TRUE)*100),4)
-
-print(paste("Largest 1-day return with trend system:", max_daily_return,"%"))
-print(paste("Largest 1-day loss with trend system:", max_daily_loss,"%"))
-print(paste("Average 1-day with trend system return:", avg_daily_return,"%"))
-
-print(paste("Largest 1-day return buy and hold strategy:", bh_max_return,"%"))
-print(paste("Largest 1-day loss with buy and hold strategy:", bh_max_loss,"%"))
-print(paste("Average 1-day with buy and hold strategy:", bh_avg_return,"%"))
-```
-
-
-# Performance Evaluation
-
-## Distribution of Returns
-
-```{r}
-p <- raw_data %>%
-  ggplot(aes(x=Inv_return)) +
-    geom_histogram(fill="#69b3a2", color="#e9ecef", alpha=0.7, binwidth = .005) +
-  coord_cartesian(xlim = c(-0.07, 0.07), ylim = c(0, 500)) +
-  labs(x = "Investment Returns", y = "Frequency of Returns",
-       title = "EMA Crossover - Histogram of Investment Returns",
-       caption = "Trend following system - Slow lag: 100 periods, Fast lag: 20 periods")+
-  theme_classic()
-p
-
-
-bh = raw_data %>%
-  ggplot(aes(x=return)) +
-    geom_histogram(fill="#69b3a2", color="#e9ecef", alpha=0.7, binwidth = .005) +
-  coord_cartesian(xlim = c(-0.07, 0.07), ylim = c(0, 500)) +
-  labs(x = "Investment Returns", y = "Frequency of Returns",
-       title = "Buy / Hold - Histogram of Investment Returns",
-       caption = "This histogram considers a buy and hold strategy")+
-  theme_classic()
-bh
-```
-
-
-## Mean and Standard Deviation 
-
-**Provide the average daily return and volatility of the trading system**
-
-```{r}
-average_return = mean(raw_data$Inv_return, na.rm = TRUE) # average return
-volatility = sd(raw_data$Inv_return, na.rm = TRUE) # volatility
-
-print(paste("Average return:", round(average_return,6)))
-print(paste("Volatility:", round(volatility,6)))
-
-
-bh_average_return = mean(raw_data$return, na.rm = TRUE) # average return
-bh_volatility = sd(raw_data$return, na.rm = TRUE) # volatility
-
-print(paste("Average return:", round(bh_average_return,6)))
-print(paste("Volatility:", round(bh_volatility,6)))
-print(paste("Buy and hold strategy witnesses much higher volatility for a small amount of additional return"))
-```
-
-## Sharpe Ratio
-
-**Volatility is used to measure the risk**
-
--   Risk adjusted measure
-
--   Sharpe ratio is sensitive to the frequency of return
-
--   You must also specify whether the ratio is based on daily, weekly, or monthly data
-
--   If implementing the strategy with different parameters, we compare Sharpe ratios
-
-    -   we use it as a relative comparison measure
-
-    -   make sure the calculation is based on the same frequency of returns
-
-```{r}
-rf = .00001  
-
-print(paste("Trend following: Sharpe ratio of daily returns:",round((average_return-rf)/volatility,5)))
-print(paste("Buy & hold: Sharpe ratio of daily returns:",round((bh_average_return-rf)/bh_volatility,5)))
-
-print(paste("   Trend following system achieves slightly higher Sharpe ratio"))
-```
-
-
-
-## Value at Risk
-
-**VAR** measures the cut-off return that your financial asset will fall below with certain probability.
-
--   By default we generally examine 5% VAR (5% of the time, your return will be below this return) using percentiles.
-
--   This means that about 5% of the time, your investment return is below : -14.76767%
-
--   In other words, at any given date there is a 5% probability that the daily (because we calculated the daily returns) return will be below -14.76767%
-
--   Here's how we calculate it:
-
-```{r}
-var = quantile(raw_data$Inv_return, 0.05, na.rm = TRUE)*100
-bh_var = quantile(raw_data$return, 0.05, na.rm = TRUE)*100
-
-print(paste("Trend-following Value at risk; we can expect 95% of the time returns will be greater than:", round(var,4)))
-print(paste("Buy / Hold Value at risk; we can expect 95% of the time returns will be greater than:", round(bh_var,4)))
-```
-
-
-# Summary of Investment Return & Market Return
-
-```{r}
-summary(raw_data$Date)
-```
-
-
-## Calculate SPX Daily Return
-
--   Our $y$ is the excess return of the Stock
-
--   Our $x$ is the excess return of the market
-
-```{r}
-y = raw_data$Inv_return - rf
-x = SPX$return - rf
-```
-
-
-```{r}
-capm = lm(y~x)
-summary(capm)
-```
-
-This trading $BETA$ is, the larger the systematic risk is
-
-**Beta** is the slope (x)
-
-$Beta$ > 1 indicates an aggressive stock
-
-Beta between 0 and 1 indicates a conservative stock
-
-We use this to measure the aggressiveness of the stock or the trading system
 
 # Visualize Days with Largest Loss and Gain
 
@@ -811,6 +670,165 @@ fig <- fig %>% layout(title = "AAPL Stock - Strategy Largest 1-day Loss",
                        xaxis = list(rangeslider = list(visible = F)))
 
 fig
+```
+
+## Max Adverse & Favorable Single-Day Returns
+
+-   Retrieve the days with the largest single-day loss, gain and average daily return for a simple buy and hold system, as well as for our trend-following system.
+
+-   Compare the results from the two strategies.
+
+```{r}
+max_daily_return = round((max(raw_data$Inv_return, na.rm = TRUE)*100),4)
+max_daily_loss =  round((min(raw_data$Inv_return, na.rm = TRUE)*100), 4)
+avg_daily_return = round((mean(raw_data$Inv_return, na.rm = TRUE)*100),4)
+
+bh_max_return = round((max(raw_data$return, na.rm = TRUE)*100),4)
+bh_max_loss =  round((min(raw_data$return, na.rm = TRUE)*100), 4)
+bh_avg_return = round((mean(raw_data$return, na.rm = TRUE)*100),4)
+
+print(paste("Largest 1-day return with trend system:", max_daily_return,"%"))
+print(paste("Largest 1-day loss with trend system:", max_daily_loss,"%"))
+print(paste("Average 1-day with trend system return:", avg_daily_return,"%"))
+
+print(paste("Largest 1-day return buy and hold strategy:", bh_max_return,"%"))
+print(paste("Largest 1-day loss with buy and hold strategy:", bh_max_loss,"%"))
+print(paste("Average 1-day with buy and hold strategy:", bh_avg_return,"%"))
+```
+
+# Performance Evaluation
+
+## Distribution of Returns
+
+Create a histogram of returns for a simple buy and hold strategy, as well as for our trend-following system:
+
+```{r}
+p <- raw_data %>%
+  ggplot(aes(x=Inv_return)) +
+    geom_histogram(fill="#69b3a2", color="#e9ecef", alpha=0.7, binwidth = .005) +
+  coord_cartesian(xlim = c(-0.07, 0.07), ylim = c(0, 500)) +
+  labs(x = "Investment Returns", y = "Frequency of Returns",
+       title = "EMA Crossover - Histogram of Investment Returns",
+       caption = "Trend following system - Slow lag: 100 periods, Fast lag: 20 periods")+
+  theme_classic()
+p
+
+
+bh = raw_data %>%
+  ggplot(aes(x=return)) +
+    geom_histogram(fill="#69b3a2", color="#e9ecef", alpha=0.7, binwidth = .005) +
+  coord_cartesian(xlim = c(-0.07, 0.07), ylim = c(0, 500)) +
+  labs(x = "Investment Returns", y = "Frequency of Returns",
+       title = "Buy / Hold - Histogram of Investment Returns",
+       caption = "This histogram considers a buy and hold strategy")+
+  theme_classic()
+bh
+```
+
+## Mean and Standard Deviation
+
+Retrieve the average daily return and volatility of our trend-following system, as well as a simple buy and hold strategy:
+
+```{r}
+average_return = mean(raw_data$Inv_return, na.rm = TRUE) # average return
+volatility = sd(raw_data$Inv_return, na.rm = TRUE) # volatility
+
+print(paste("Average return:", round(average_return,6)))
+print(paste("Volatility:", round(volatility,6)))
+
+
+bh_average_return = mean(raw_data$return, na.rm = TRUE) # average return
+bh_volatility = sd(raw_data$return, na.rm = TRUE) # volatility
+
+print(paste("Average return:", round(bh_average_return,6)))
+print(paste("Volatility:", round(bh_volatility,6)))
+print(paste("Buy and hold strategy experiences much higher volatility for a small amount of additional return"))
+```
+
+## Sharpe Ratio
+
+The Sharpe ratio was developed by Nobel laureate [William F. Sharpe](https://www.investopedia.com/terms/w/william-f-sharpe.asp) and is used to help [investors](https://www.investopedia.com/terms/i/investor.asp) understand the [return of an investment](https://www.investopedia.com/terms/r/returnoninvestment.asp) compared to its risk.12 The ratio is the average return earned in excess of the risk-free rate per unit of [volatility](https://www.investopedia.com/terms/v/volatility.asp) or total risk. Volatility is a measure of the price fluctuations of an asset or portfolio.
+
+-   Our **Sharpe** ratios are based on **daily returns** for both the buy and hold strategy and the trend-following system.
+
+```{r}
+rf = .00001 # risk-free rate
+print(paste("Trend following: Sharpe ratio of daily returns:",round((average_return-rf)/volatility,5)))
+print(paste("Buy & hold: Sharpe ratio of daily returns:",round((bh_average_return-rf)/bh_volatility,5)))
+
+print(paste("Our Trend-following system achieves slightly higher Sharpe ratio"))
+```
+
+## Value at Risk
+
+**VAR** measures the cut-off return that your financial asset will fall below with certain probability.
+
+Value at risk (VaR) is a statistic that quantifies the extent of possible financial losses within a firm, portfolio, or position over a specific time frame. This metric is most commonly used by [investment ](https://www.investopedia.com/terms/i/investmentbank.asp)and [commercial banks](https://www.investopedia.com/terms/c/commercialbank.asp) to determine the extent and probabilities of potential losses in their institutional portfolios.
+
+```{r}
+var = quantile(raw_data$Inv_return, 0.05, na.rm = TRUE)*100
+bh_var = quantile(raw_data$return, 0.05, na.rm = TRUE)*100
+
+print(paste("Trend-following VAR: we can expect 95% of the time returns will be greater than:", round(var,4)))
+print(paste("Buy / Hold model VAR: we can expect 95% of the time returns will be greater than:", round(bh_var,4)))
+```
+
+# Summary of Investment & Market Return
+
+In order to break down risk into two components, we need to collect what part of the return was attributed to the market and what part to our trading system.
+
+## Fit CAPM Model
+
+-   Our $y$ is the excess return of the trading system
+
+-   Our $x$ is the excess return of the market
+
+```{r}
+y = raw_data$Inv_return - rf
+x = SPX$return - rf
+```
+
+```{r}
+# fit regression
+
+capm = lm(y~x)
+summary(capm)
+
+print(paste("Trend-following system Beta:", round(capm$coefficients[2],4)))
+```
+
+The larger the $BETA$ is, the larger the systematic risk is.
+
+We use this to measure the aggressiveness of the stock or the trading system.
+
+Our trend-following system is mostly conservative.
+
+## Jensen's Alpha (Abnormal Return)
+
+-   In the regression model, it is the intercept term
+
+-   This tells us how much the strategy gives us extra reward, above the market return.
+
+-   Generally we would like to see a positive $ALPHA$
+
+    -   This is associated with its **statistical significance**.
+
+    -   The higher $ALPHA$ the better the investment performance
+
+```{r}
+tf_beta = capm$coefficients[2] # beta
+jensens_alpha = capm$coefficients[1] # Jensen's Alpha
+
+print(paste("Jensen's Alpha:", round(jensens_alpha,4)))
+```
+
+## Treynor's Ratio
+
+```{r}
+print(paste("Treynor's Ratio Version 1:", round(jensens_alpha/tf_beta, 4)))
+```
+```{r}
+print(paste("Treynor's Ratio Version 2:", round(((mean(raw_data$Inv_return, na.rm = TRUE))/tf_beta),4)))
 ```
 
 
